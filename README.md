@@ -1,10 +1,10 @@
-# version-check
+# moz-cli-version-check
 
-A lightweight, opt-in version checking library for Mozilla CLI tools.
+A lightweight version checking library for Mozilla CLI tools.
 
 ## Features
 
-- **Opt-in only**: Only checks when `MOZTOOLS_UPDATE_CHECK=1` is set
+- **Enabled by default**: Checks for updates unless `MOZTOOLS_UPDATE_CHECK=0` is set
 - **Non-blocking**: Runs in background thread, never delays program startup
 - **Cached**: Checks at most once per 24 hours per tool
 - **Shared cache**: All tools share `~/.mozbuild/tool-versions.json`
@@ -17,14 +17,14 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-version-check = { path = "../foxtail/version-check" }
+moz-cli-version-check = "0.1"
 ```
 
 In your `main.rs`:
 
 ```rust
 fn main() -> Result<()> {
-    let version_checker = version_check::VersionChecker::new(
+    let version_checker = moz_cli_version_check::VersionChecker::new(
         "your-tool-name",
         env!("CARGO_PKG_VERSION"),
     );
@@ -45,7 +45,7 @@ fn run() -> Result<()> {
 
 ## How It Works
 
-1. At program startup, if `MOZTOOLS_UPDATE_CHECK=1` is set, spawn a background thread
+1. At program startup, unless `MOZTOOLS_UPDATE_CHECK=0` is set, spawn a background thread
 2. The thread checks the cache file (`~/.mozbuild/tool-versions.json`)
 3. If the cache is recent (< 24 hours), use cached data
 4. Otherwise, query crates.io API: `https://crates.io/api/v1/crates/<name>`
@@ -80,17 +80,16 @@ The cache file at `~/.mozbuild/tool-versions.json` contains:
 
 ## Testing
 
-To enable version checking:
+Version checking is enabled by default:
 
 ```bash
-export MOZTOOLS_UPDATE_CHECK=1
 socorro-cli crash --help
 ```
 
-To disable (default):
+To disable:
 
 ```bash
-unset MOZTOOLS_UPDATE_CHECK
+export MOZTOOLS_UPDATE_CHECK=0
 socorro-cli crash --help
 ```
 

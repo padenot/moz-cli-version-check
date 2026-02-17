@@ -49,7 +49,7 @@ impl VersionChecker {
     }
 
     pub fn check_async(&self) {
-        if std::env::var("MOZTOOLS_UPDATE_CHECK").unwrap_or_default() != "1" {
+        if std::env::var("MOZTOOLS_UPDATE_CHECK").unwrap_or_default() == "0" {
             return;
         }
 

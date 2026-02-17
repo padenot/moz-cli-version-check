@@ -2,7 +2,7 @@
 name = "moz-cli-version-check"
 version = "0.1.0"
 edition = "2021"
-description = "Opt-in version checking library for Mozilla CLI tools"
+description = "Version checking library for Mozilla CLI tools"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/padenot/moz-cli-version-check"
 authors = ["Paul Adenot <paul@paul.cx>"]
