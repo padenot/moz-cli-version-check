@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
+use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -36,7 +37,7 @@ struct CrateInfo {
 pub struct VersionChecker {
     tool_name: String,
     current_version: String,
-    update_available: Arc<Mutex<Option<String>>>,
+    receiver: Mutex<Option<Receiver<Option<String>>>>,
 }
 
 impl VersionChecker {
@@ -44,7 +45,7 @@ impl VersionChecker {
         Self {
             tool_name: tool_name.into(),
             current_version: current_version.into(),
-            update_available: Arc::new(Mutex::new(None)),
+            receiver: Mutex::new(None),
         }
     }
 
@@ -53,29 +54,50 @@ impl VersionChecker {
             return;
         }
 
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        if let Ok(mut guard) = self.receiver.lock() {
+            *guard = Some(rx);
+        }
+
         let tool_name = self.tool_name.clone();
         let current_version = self.current_version.clone();
-        let update_available = Arc::clone(&self.update_available);
 
         thread::spawn(move || {
-            if let Some(latest_version) = check_version(&tool_name, &current_version) {
-                if let Ok(mut guard) = update_available.lock() {
-                    *guard = Some(latest_version);
-                }
-            }
+            let result = check_version(&tool_name, &current_version);
+            let _ = tx.send(result);
         });
     }
 
-    pub fn print_warning(&self) {
-        if let Ok(guard) = self.update_available.lock() {
-            if let Some(ref latest_version) = *guard {
-                eprintln!(
-                    "Note: A newer version of {} is available ({} > {})",
-                    self.tool_name, latest_version, self.current_version
-                );
-                eprintln!("      Run: cargo binstall {}", self.tool_name);
+    fn recv_update(&self, timeout: Duration) -> Option<String> {
+        let mut guard = self.receiver.lock().ok()?;
+        let rx = guard.as_ref()?;
+        match rx.recv_timeout(timeout) {
+            Ok(result) => {
+                *guard = None;
+                result
             }
+            Err(_) => None,
         }
+    }
+
+    pub fn print_warning(&self) {
+        if let Some(ref latest_version) = self.recv_update(Duration::from_millis(500)) {
+            self.print_update_message(latest_version);
+        }
+    }
+
+    pub fn print_warning_sync(&self) {
+        if let Some(ref latest_version) = self.recv_update(Duration::from_secs(6)) {
+            self.print_update_message(latest_version);
+        }
+    }
+
+    fn print_update_message(&self, latest_version: &str) {
+        eprintln!(
+            "Note: A newer version of {} is available ({} > {})",
+            self.tool_name, latest_version, self.current_version
+        );
+        eprintln!("      Run: cargo binstall {}", self.tool_name);
     }
 }
 
