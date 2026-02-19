@@ -117,7 +117,8 @@ fn save_cache(cache: &VersionCache) {
     }
 
     if let Ok(content) = serde_json::to_string_pretty(cache) {
-        let _ = fs::File::create(&cache_path).and_then(|mut file| file.write_all(content.as_bytes()));
+        let _ =
+            fs::File::create(&cache_path).and_then(|mut file| file.write_all(content.as_bytes()));
     }
 }
 
@@ -130,12 +131,7 @@ fn fetch_latest_version(tool_name: &str) -> Option<String> {
         .build()
         .ok()?;
 
-    let response: CratesIoResponse = client
-        .get(&url)
-        .send()
-        .ok()?
-        .json()
-        .ok()?;
+    let response: CratesIoResponse = client.get(&url).send().ok()?.json().ok()?;
 
     Some(response.crate_info.max_version)
 }
