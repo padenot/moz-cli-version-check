@@ -94,8 +94,8 @@ impl VersionChecker {
 
     fn print_update_message(&self, latest_version: &str) {
         eprintln!(
-            "Note: A newer version of {} is available ({} > {})",
-            self.tool_name, latest_version, self.current_version
+            "Note: A newer version of {} is available (current: {}, latest: {})",
+            self.tool_name, self.current_version, latest_version
         );
         eprintln!("      Run: cargo binstall {}", self.tool_name);
     }
@@ -181,6 +181,14 @@ fn is_newer_version(current: &str, latest: &str) -> bool {
 }
 
 fn check_version(tool_name: &str, current_version: &str) -> Option<String> {
+    if let Ok(fake) = std::env::var("MOZTOOLS_FAKE_LATEST") {
+        return if is_newer_version(current_version, &fake) {
+            Some(fake)
+        } else {
+            None
+        };
+    }
+
     let mut cache = load_cache();
     let now = get_current_timestamp();
 
@@ -188,6 +196,10 @@ fn check_version(tool_name: &str, current_version: &str) -> Option<String> {
         if now - info.last_check < CACHE_VALIDITY_SECONDS {
             if is_newer_version(current_version, &info.latest) {
                 return Some(info.latest.clone());
+            }
+            if is_newer_version(&info.latest, current_version) {
+                cache.tools.remove(tool_name);
+                save_cache(&cache);
             }
             return None;
         }
