@@ -13,35 +13,54 @@ A lightweight version checking library for Mozilla CLI tools.
 
 ## Usage
 
-Add to your `Cargo.toml`:
+Add the dependency:
 
-```toml
-[dependencies]
-moz-cli-version-check = "0.1"
+```bash
+cargo add moz-cli-version-check
 ```
 
 In your `main.rs`:
 
 ```rust
+use clap::Parser;
+
 fn main() -> Result<()> {
     let version_checker = moz_cli_version_check::VersionChecker::new(
-        "your-tool-name",
+        env!("CARGO_PKG_NAME"),
         env!("CARGO_PKG_VERSION"),
     );
     version_checker.check_async();
 
-    let result = run();
-
-    version_checker.print_warning();
-
-    result
-}
-
-fn run() -> Result<()> {
-    // Your actual program logic here
-    Ok(())
+    match Cli::try_parse() {
+        Ok(cli) => {
+            let result = run(cli);
+            version_checker.print_warning();
+            result
+        }
+        Err(e) => {
+            let _ = e.print();                    // print help/version/error text first
+            version_checker.print_warning();      // print update notice last
+            std::process::exit(e.exit_code());    // 0 for help/version, 2 for errors
+        }
+    }
 }
 ```
+
+**Why `try_parse()`?** clap's `Parser::parse()` calls `std::process::exit()` when
+the user passes `--help` or `--version`, which terminates the process before
+`print_warning()` can run. Using `try_parse()` returns a `Result` instead,
+giving you a chance to print the update notice in both the success and error branches.
+In the `Err` branch, `e.print()` outputs clap's help/version/error text first, then
+the update notice appears after it.
+
+## Usage from AI agents / skills
+
+AI agent skills (e.g. Claude Code skills) that invoke tools using this library
+should start with a preliminary step before doing any real work:
+
+1. Run `<tool> --version` to verify the tool is installed and available.
+2. Check stderr for an update notice. If one appears, update the tool
+   (e.g. `cargo binstall <tool>`) before proceeding.
 
 ## How It Works
 
@@ -54,10 +73,10 @@ fn run() -> Result<()> {
 
 ## Warning Format
 
-When a newer version is available, users see:
+When a newer version is available, users see on stderr:
 
 ```
-Note: A newer version of socorro-cli is available (0.2.0 > 0.1.0)
+Note: A newer version of socorro-cli is available (current: 0.1.0, latest: 0.2.0)
       Run: cargo binstall socorro-cli
 ```
 
