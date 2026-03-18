@@ -80,12 +80,20 @@ impl VersionChecker {
         }
     }
 
+    /// # Clap integration
+    ///
+    /// If your CLI uses clap, you must use `Parser::try_parse()` instead of
+    /// `parse()`. clap's `parse()` calls `std::process::exit()` on `--help`
+    /// and `--version`, which will skip this call entirely. With `try_parse()`,
+    /// call `e.print()` first in the `Err` branch, then `print_warning()`, then
+    /// `std::process::exit(e.exit_code())`. See the README for a full example.
     pub fn print_warning(&self) {
         if let Some(ref latest_version) = self.recv_update(Duration::from_millis(500)) {
             self.print_update_message(latest_version);
         }
     }
 
+    /// See [`print_warning`](Self::print_warning) for clap integration notes.
     pub fn print_warning_sync(&self) {
         if let Some(ref latest_version) = self.recv_update(Duration::from_secs(6)) {
             self.print_update_message(latest_version);
