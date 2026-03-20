@@ -6,7 +6,8 @@ A lightweight version checking library for Mozilla CLI tools.
 
 - **Enabled by default**: Checks for updates unless `MOZTOOLS_UPDATE_CHECK=0` is set
 - **Non-blocking**: Runs in background thread, never delays program startup
-- **Cached**: Checks at most once per 24 hours per tool
+- **Cached**: Remote checks are throttled to at most once per interval per tool
+- **Failure-aware**: Failed or blocked remote checks are also throttled
 - **Shared cache**: All tools share `~/.mozbuild/tool-versions.json`
 - **Silent failures**: Network errors don't affect program operation
 - **Thread-safe**: Safe for concurrent access
@@ -62,14 +63,36 @@ should start with a preliminary step before doing any real work:
 2. Check stderr for an update notice. If one appears, update the tool
    (e.g. `cargo binstall <tool>`) before proceeding.
 
+To override the default interval in code:
+
+```rust
+use std::time::Duration;
+
+fn main() -> Result<()> {
+    let version_checker = moz_cli_version_check::VersionChecker::with_check_interval(
+        "your-tool-name",
+        env!("CARGO_PKG_VERSION"),
+        Duration::from_secs(24 * 60 * 60),
+    );
+    version_checker.check_async();
+
+    let result = run();
+
+    version_checker.print_warning();
+
+    result
+}
+```
+
 ## How It Works
 
 1. At program startup, unless `MOZTOOLS_UPDATE_CHECK=0` is set, spawn a background thread
 2. The thread checks the cache file (`~/.mozbuild/tool-versions.json`)
-3. If the cache is recent (< 24 hours), use cached data
+3. If the cache is recent (< configured interval), use cached data
 4. Otherwise, query crates.io API: `https://crates.io/api/v1/crates/<name>`
-5. Update the cache with the latest version info
-6. At program exit, print a warning if a newer version is available
+5. Record the attempt time even if the remote check fails or is blocked
+6. Update the cache with the latest version info when available
+7. At program exit, print a warning if a newer version is available
 
 ## Warning Format
 
@@ -115,7 +138,8 @@ socorro-cli crash --help
 ## Configuration
 
 - **Cache location**: `~/.mozbuild/tool-versions.json`
-- **Cache validity**: 24 hours
+- **Default check interval**: 24 hours
+- **Env override**: `MOZTOOLS_UPDATE_CHECK_INTERVAL_SECONDS`
 - **Network timeout**: 5 seconds
 - **User-Agent**: `{tool-name}/version-check`
 

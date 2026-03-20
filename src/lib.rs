@@ -3,17 +3,19 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::mpsc::Receiver;
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const CACHE_VALIDITY_SECONDS: u64 = 86400;
+const DEFAULT_CHECK_INTERVAL_SECONDS: u64 = 86400;
 const CHECK_TIMEOUT_SECONDS: u64 = 5;
+const UPDATE_CHECK_INTERVAL_ENV: &str = "MOZTOOLS_UPDATE_CHECK_INTERVAL_SECONDS";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ToolVersionInfo {
     last_check: u64,
+    #[serde(default)]
     latest: String,
 }
 
@@ -37,14 +39,28 @@ struct CrateInfo {
 pub struct VersionChecker {
     tool_name: String,
     current_version: String,
+    check_interval: Duration,
     receiver: Mutex<Option<Receiver<Option<String>>>>,
 }
 
 impl VersionChecker {
     pub fn new(tool_name: impl Into<String>, current_version: impl Into<String>) -> Self {
+        Self::with_check_interval(
+            tool_name,
+            current_version,
+            Duration::from_secs(get_check_interval_seconds()),
+        )
+    }
+
+    pub fn with_check_interval(
+        tool_name: impl Into<String>,
+        current_version: impl Into<String>,
+        check_interval: Duration,
+    ) -> Self {
         Self {
             tool_name: tool_name.into(),
             current_version: current_version.into(),
+            check_interval,
             receiver: Mutex::new(None),
         }
     }
@@ -61,9 +77,10 @@ impl VersionChecker {
 
         let tool_name = self.tool_name.clone();
         let current_version = self.current_version.clone();
+        let check_interval = self.check_interval;
 
         thread::spawn(move || {
-            let result = check_version(&tool_name, &current_version);
+            let result = check_version(&tool_name, &current_version, check_interval);
             let _ = tx.send(result);
         });
     }
@@ -118,6 +135,14 @@ fn get_current_timestamp() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+fn get_check_interval_seconds() -> u64 {
+    std::env::var(UPDATE_CHECK_INTERVAL_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(DEFAULT_CHECK_INTERVAL_SECONDS)
 }
 
 fn load_cache() -> VersionCache {
@@ -188,7 +213,11 @@ fn is_newer_version(current: &str, latest: &str) -> bool {
     latest_parts.len() > current_parts.len()
 }
 
-fn check_version(tool_name: &str, current_version: &str) -> Option<String> {
+fn check_version(
+    tool_name: &str,
+    current_version: &str,
+    check_interval: Duration,
+) -> Option<String> {
     if let Ok(fake) = std::env::var("MOZTOOLS_FAKE_LATEST") {
         return if is_newer_version(current_version, &fake) {
             Some(fake)
@@ -199,9 +228,10 @@ fn check_version(tool_name: &str, current_version: &str) -> Option<String> {
 
     let mut cache = load_cache();
     let now = get_current_timestamp();
+    let check_interval = check_interval.as_secs();
 
     if let Some(info) = cache.tools.get(tool_name) {
-        if now - info.last_check < CACHE_VALIDITY_SECONDS {
+        if now.saturating_sub(info.last_check) < check_interval {
             if is_newer_version(current_version, &info.latest) {
                 return Some(info.latest.clone());
             }
@@ -213,7 +243,30 @@ fn check_version(tool_name: &str, current_version: &str) -> Option<String> {
         }
     }
 
-    let latest_version = fetch_latest_version(tool_name)?;
+    let previous_latest = cache
+        .tools
+        .get(tool_name)
+        .map(|info| info.latest.clone())
+        .unwrap_or_default();
+
+    cache.tools.insert(
+        tool_name.to_string(),
+        ToolVersionInfo {
+            last_check: now,
+            latest: previous_latest.clone(),
+        },
+    );
+    save_cache(&cache);
+
+    let latest_version = match fetch_latest_version(tool_name) {
+        Some(version) => version,
+        None => {
+            if is_newer_version(current_version, &previous_latest) {
+                return Some(previous_latest);
+            }
+            return None;
+        }
+    };
 
     cache.tools.insert(
         tool_name.to_string(),
