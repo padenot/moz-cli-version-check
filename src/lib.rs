@@ -106,24 +106,29 @@ impl VersionChecker {
     /// `std::process::exit(e.exit_code())`. See the README for a full example.
     pub fn print_warning(&self) {
         if let Some(ref latest_version) = self.recv_update(Duration::from_millis(500)) {
-            self.print_update_message(latest_version);
+            eprint!(
+                "{}",
+                format_notice(&self.tool_name, &self.current_version, latest_version)
+            );
         }
     }
 
     /// See [`print_warning`](Self::print_warning) for clap integration notes.
     pub fn print_warning_sync(&self) {
         if let Some(ref latest_version) = self.recv_update(Duration::from_secs(6)) {
-            self.print_update_message(latest_version);
+            eprint!(
+                "{}",
+                format_notice(&self.tool_name, &self.current_version, latest_version)
+            );
         }
     }
+}
 
-    fn print_update_message(&self, latest_version: &str) {
-        eprintln!(
-            "Note: A newer version of {} is available (current: {}, latest: {})",
-            self.tool_name, self.current_version, latest_version
-        );
-        eprintln!("      Run: cargo binstall {}", self.tool_name);
-    }
+fn format_notice(tool_name: &str, current_version: &str, latest_version: &str) -> String {
+    format!(
+        "Note: A newer version of {} is available (current: {}, latest: {})\n      Run: cargo binstall {}\n",
+        tool_name, current_version, latest_version, tool_name
+    )
 }
 
 fn get_cache_path() -> Option<PathBuf> {
@@ -138,8 +143,11 @@ fn get_current_timestamp() -> u64 {
 }
 
 fn get_check_interval_seconds() -> u64 {
-    std::env::var(UPDATE_CHECK_INTERVAL_ENV)
-        .ok()
+    parse_check_interval(std::env::var(UPDATE_CHECK_INTERVAL_ENV).ok().as_deref())
+}
+
+fn parse_check_interval(value: Option<&str>) -> u64 {
+    value
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|seconds| *seconds > 0)
         .unwrap_or(DEFAULT_CHECK_INTERVAL_SECONDS)
@@ -282,5 +290,63 @@ fn check_version(
         Some(latest_version)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notice_names_tool_versions_and_binstall_command() {
+        assert_eq!(
+            format_notice("demo", "0.1.0", "99.0.0"),
+            "Note: A newer version of demo is available (current: 0.1.0, latest: 99.0.0)\n      Run: cargo binstall demo\n"
+        );
+    }
+
+    #[test]
+    fn higher_version_is_newer() {
+        assert!(is_newer_version("0.2.4", "0.3.0"));
+    }
+
+    #[test]
+    fn v_prefix_is_ignored() {
+        assert!(is_newer_version("v0.2.4", "0.2.5"));
+        assert!(!is_newer_version("0.2.4", "v0.2.4"));
+    }
+
+    #[test]
+    fn longer_version_is_newer_than_its_prefix() {
+        assert!(is_newer_version("0.2", "0.2.1"));
+        assert!(!is_newer_version("0.2.1", "0.2"));
+    }
+
+    #[test]
+    fn equal_or_older_version_is_not_newer() {
+        assert!(!is_newer_version("0.2.4", "0.2.4"));
+        assert!(!is_newer_version("0.3.0", "0.2.4"));
+    }
+
+    #[test]
+    fn check_interval_defaults_when_unset() {
+        assert_eq!(parse_check_interval(None), DEFAULT_CHECK_INTERVAL_SECONDS);
+    }
+
+    #[test]
+    fn check_interval_accepts_positive_seconds() {
+        assert_eq!(parse_check_interval(Some("3600")), 3600);
+    }
+
+    #[test]
+    fn check_interval_falls_back_on_zero_or_garbage() {
+        assert_eq!(
+            parse_check_interval(Some("0")),
+            DEFAULT_CHECK_INTERVAL_SECONDS
+        );
+        assert_eq!(
+            parse_check_interval(Some("soon")),
+            DEFAULT_CHECK_INTERVAL_SECONDS
+        );
     }
 }
