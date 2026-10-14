@@ -40,6 +40,8 @@ pub struct VersionChecker {
     tool_name: String,
     current_version: String,
     check_interval: Duration,
+    update_command: Option<String>,
+    extra_notice: Option<String>,
     receiver: Mutex<Option<Receiver<Option<String>>>>,
 }
 
@@ -61,8 +63,20 @@ impl VersionChecker {
             tool_name: tool_name.into(),
             current_version: current_version.into(),
             check_interval,
+            update_command: None,
+            extra_notice: None,
             receiver: Mutex::new(None),
         }
+    }
+
+    pub fn with_update_command(mut self, update_command: impl Into<String>) -> Self {
+        self.update_command = Some(update_command.into());
+        self
+    }
+
+    pub fn with_extra_notice(mut self, extra_notice: impl Into<String>) -> Self {
+        self.extra_notice = Some(extra_notice.into());
+        self
     }
 
     pub fn check_async(&self) {
@@ -106,29 +120,46 @@ impl VersionChecker {
     /// `std::process::exit(e.exit_code())`. See the README for a full example.
     pub fn print_warning(&self) {
         if let Some(ref latest_version) = self.recv_update(Duration::from_millis(500)) {
-            eprint!(
-                "{}",
-                format_notice(&self.tool_name, &self.current_version, latest_version)
-            );
+            eprint!("{}", self.notice(latest_version));
         }
     }
 
     /// See [`print_warning`](Self::print_warning) for clap integration notes.
     pub fn print_warning_sync(&self) {
         if let Some(ref latest_version) = self.recv_update(Duration::from_secs(6)) {
-            eprint!(
-                "{}",
-                format_notice(&self.tool_name, &self.current_version, latest_version)
-            );
+            eprint!("{}", self.notice(latest_version));
         }
+    }
+
+    fn notice(&self, latest_version: &str) -> String {
+        format_notice(
+            &self.tool_name,
+            &self.current_version,
+            latest_version,
+            self.update_command.as_deref(),
+            self.extra_notice.as_deref(),
+        )
     }
 }
 
-fn format_notice(tool_name: &str, current_version: &str, latest_version: &str) -> String {
-    format!(
-        "Note: A newer version of {} is available (current: {}, latest: {})\n      Run: cargo binstall {}\n",
-        tool_name, current_version, latest_version, tool_name
-    )
+fn format_notice(
+    tool_name: &str,
+    current_version: &str,
+    latest_version: &str,
+    update_command: Option<&str>,
+    extra_notice: Option<&str>,
+) -> String {
+    let update_command =
+        update_command.map_or_else(|| format!("cargo binstall {}", tool_name), str::to_string);
+    let mut notice = format!(
+        "Note: A newer version of {} is available (current: {}, latest: {})\n      Run: {}\n",
+        tool_name, current_version, latest_version, update_command
+    );
+    if let Some(extra_notice) = extra_notice {
+        notice.push_str(extra_notice);
+        notice.push('\n');
+    }
+    notice
 }
 
 fn get_cache_path() -> Option<PathBuf> {
@@ -300,8 +331,43 @@ mod tests {
     #[test]
     fn notice_names_tool_versions_and_binstall_command() {
         assert_eq!(
-            format_notice("demo", "0.1.0", "99.0.0"),
+            format_notice("demo", "0.1.0", "99.0.0", None, None),
             "Note: A newer version of demo is available (current: 0.1.0, latest: 99.0.0)\n      Run: cargo binstall demo\n"
+        );
+    }
+
+    #[test]
+    fn notice_uses_custom_update_command() {
+        assert_eq!(
+            format_notice("demo", "0.1.0", "99.0.0", Some("demo update"), None),
+            "Note: A newer version of demo is available (current: 0.1.0, latest: 99.0.0)\n      Run: demo update\n"
+        );
+    }
+
+    #[test]
+    fn notice_appends_extra_line() {
+        assert_eq!(
+            format_notice("demo", "0.1.0", "99.0.0", None, Some("ACTION REQUIRED: demo is out of date")),
+            "Note: A newer version of demo is available (current: 0.1.0, latest: 99.0.0)\n      Run: cargo binstall demo\nACTION REQUIRED: demo is out of date\n"
+        );
+    }
+
+    #[test]
+    fn notice_combines_custom_command_and_extra_line() {
+        assert_eq!(
+            format_notice("demo", "0.1.0", "99.0.0", Some("demo update"), Some("ACTION REQUIRED: demo is out of date")),
+            "Note: A newer version of demo is available (current: 0.1.0, latest: 99.0.0)\n      Run: demo update\nACTION REQUIRED: demo is out of date\n"
+        );
+    }
+
+    #[test]
+    fn builders_configure_the_notice() {
+        let checker = VersionChecker::with_check_interval("demo", "0.1.0", Duration::from_secs(60))
+            .with_update_command("demo update")
+            .with_extra_notice("ACTION REQUIRED: demo is out of date");
+        assert_eq!(
+            checker.notice("99.0.0"),
+            "Note: A newer version of demo is available (current: 0.1.0, latest: 99.0.0)\n      Run: demo update\nACTION REQUIRED: demo is out of date\n"
         );
     }
 
