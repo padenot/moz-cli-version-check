@@ -60,8 +60,9 @@ AI agent skills (e.g. Claude Code skills) that invoke tools using this library
 should start with a preliminary step before doing any real work:
 
 1. Run `<tool> --version` to verify the tool is installed and available.
-2. Check stderr for an update notice. If one appears, update the tool
-   (e.g. `cargo binstall <tool>`) before proceeding.
+2. Check stderr for an update notice. If one appears, run the update command
+   shown in the notice before proceeding. By default it is `cargo binstall <tool>`;
+   a tool can change it with `with_update_command` (see below).
 
 To override the default interval in code:
 
@@ -84,6 +85,17 @@ fn main() -> Result<()> {
 }
 ```
 
+To change the update command shown in the notice, or to add one extra line after it:
+
+```rust
+let version_checker = moz_cli_version_check::VersionChecker::new(
+    env!("CARGO_PKG_NAME"),
+    env!("CARGO_PKG_VERSION"),
+)
+.with_update_command("your-tool update")
+.with_extra_notice("ACTION REQUIRED: your-tool is out of date. Update it before continuing.");
+```
+
 ## How It Works
 
 1. At program startup, unless `MOZTOOLS_UPDATE_CHECK=0` is set, spawn a background thread
@@ -102,6 +114,10 @@ When a newer version is available, users see on stderr:
 Note: A newer version of socorro-cli is available (current: 0.1.0, latest: 0.2.0)
       Run: cargo binstall socorro-cli
 ```
+
+The `Run:` line uses `cargo binstall <tool>` unless the tool sets its own command with
+`with_update_command`. If the tool sets `with_extra_notice`, that text is printed as one
+more line after the `Run:` line.
 
 ## Cache Format
 
