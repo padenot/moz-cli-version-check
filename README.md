@@ -27,7 +27,7 @@ fn main() {
 
 Call `check_async()` near startup and `print_warning()` after the tool's output.
 `print_warning()` waits up to 500 ms for a result; `print_warning_sync()` waits up
-to six seconds. Network and cache errors produce no update notice.
+to six seconds. Network and cache errors do not abort the tool.
 
 When an update is available, stderr includes:
 
